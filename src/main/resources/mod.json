@@ -1,0 +1,14 @@
+{
+
+  "auto-redeploy": true,
+
+  "main":"com.mycompany.myproject.HelloServer",
+  
+  "preserve-cwd": true,
+
+  // Mandatory fields for Vert.x modules
+  "description":"Module description",
+  "licenses": ["The Apache Software License Version 2.0"],
+  "author": "Your name here"
+  
+}

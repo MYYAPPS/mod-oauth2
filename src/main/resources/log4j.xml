@@ -1,0 +1,13 @@
+<!DOCTYPE log4j:configuration SYSTEM "log4j.dtd">
+<log4j:configuration>
+  <appender name="console" class="org.apache.log4j.ConsoleAppender">  
+    <param name="Target" value="System.out"/>  
+    <layout class="org.apache.log4j.PatternLayout">  
+      <param name="ConversionPattern" value="%-5p %d %c %x - %m%n"/>  
+    </layout>  
+  </appender> 
+  <category name="io.netty">
+    <priority value="warn"/>
+    <appender-ref ref="console"/>
+  </category>
+</log4j:configuration>
