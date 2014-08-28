@@ -2,7 +2,7 @@
 
   "auto-redeploy": true,
 
-  "main":"com.mycompany.myproject.HelloServer",
+  "main":"net.eusashead.vertx.oauth.server.HttpServer",
   
   "preserve-cwd": true,
 

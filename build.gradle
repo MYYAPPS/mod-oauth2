@@ -1,8 +1,14 @@
 apply from: "gradle/vertx.gradle"
 
+sourceCompatibility = '1.8'
+targetCompatibility = '1.8'
+
 dependencies {
+  compile 'io.vertx:mod-rxvertx:1.0.0-beta4'
   compile 'com.github.fakemongo:fongo:1.5.5'
   compile 'org.springframework.data:spring-data-mongodb:1.5.1.RELEASE'
+  compile 'com.samskivert:jmustache:1.9'
+  compile 'io.vertx:mod-web-server:2.0.0-final'
 }
 
 test {

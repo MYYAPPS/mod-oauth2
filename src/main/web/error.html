@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+
+{{>meta.html}}
+
+    <title>Error</title>
+  
+{{>csslibs.html}}
+  
+    <!-- Custom styles for this template -->
+    <link href="css/styles.css" rel="stylesheet">
+  
+  </head>
+  <body>
+
+{{>nav.html}}
+
+    <div class="container">
+
+      <div class="starter-template">
+        <h1>Error</h1>
+        <p class="lead">An error occured.</p>
+        <ul>
+{{#messages}}
+      	  <li>{{message}}</li>
+{{/messages}}
+        </ul>
+      </div>
+
+    </div><!-- /.container -->
+
+{{>jslibs.html}}
+
+  </body>
+</html>

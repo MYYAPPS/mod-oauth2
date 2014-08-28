@@ -18,6 +18,8 @@ package com.mycompany.myproject.test.integration.java;/*
 
 import static org.vertx.testtools.VertxAssert.assertNotNull;
 import static org.vertx.testtools.VertxAssert.assertTrue;
+import io.vertx.rxcore.java.eventbus.RxEventBus;
+import io.vertx.rxcore.java.eventbus.RxMessage;
 
 import org.junit.Test;
 import org.vertx.java.core.AsyncResult;
@@ -26,23 +28,61 @@ import org.vertx.java.core.Handler;
 import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.http.HttpClient;
 import org.vertx.java.core.http.HttpClientResponse;
+import org.vertx.java.core.json.JsonObject;
 import org.vertx.testtools.TestVerticle;
 import org.vertx.testtools.VertxAssert;
 
-import com.mycompany.myproject.HelloServer;
+import rx.functions.Action1;
 
 /**
- * Example Java integration test that deploys the module that this project
- * builds.
+ * Integration tests verifying RxVertx and mod-mongo-persistor
  * 
- * Quite often in integration tests you want to deploy the same module for all
- * tests and you don't want tests to start before the module has been deployed.
- * 
- * This test demonstrates how to do that.
  */
-public class HttpResourceIntegrationTest extends TestVerticle {
+public class RxVertxHttpVerticleIntegrationTest extends TestVerticle {
 
     private static final String RESOURCE_URI = "/resource";
+
+    private Action1<RxMessage<JsonObject>> rxMessageAction() {
+        return new Action1<RxMessage<JsonObject>>() {
+
+            @Override
+            public void call(RxMessage<JsonObject> t1) {
+                container.logger().info(
+                        "Observable returned with: " + t1.body());
+                VertxAssert.testComplete();
+
+            }
+        };
+    }
+
+    @Test
+    public void testClientObservable() {
+        Observables.clientObservable(new RxEventBus(vertx.eventBus()))
+                .subscribe(rxMessageAction());
+    }
+
+    @Test
+    public void testPermissionsObservable() {
+        Observables.permissionsObservable(new RxEventBus(vertx.eventBus()))
+                .subscribe(rxMessageAction());
+    }
+
+    @Test
+    public void testZipObservable() {
+        RxEventBus eventBus = new RxEventBus(vertx.eventBus());
+        Observables.zipObservable(eventBus, container.logger()).subscribe(
+                new Action1<JsonObject>() {
+
+                    @Override
+                    public void call(JsonObject t1) {
+                        container.logger().info(
+                                "Zip Observable returned with: " + t1);
+                        VertxAssert.testComplete();
+
+                    }
+
+                });
+    }
 
     @Test
     public void testGetResource() {
@@ -75,7 +115,7 @@ public class HttpResourceIntegrationTest extends TestVerticle {
         initialize();
 
         // Deploy the module
-        container.deployVerticle(HelloServer.class.getName(),
+        container.deployVerticle(RxVertxHttpVerticle.class.getName(),
                 new AsyncResultHandler<String>() {
 
                     @Override
@@ -88,15 +128,6 @@ public class HttpResourceIntegrationTest extends TestVerticle {
                         assertTrue(asyncResult.succeeded());
                         assertNotNull("deploymentID should not be null",
                                 asyncResult.result());
-
-                        // Sleep for a bit to allow nested modules to deploy
-                        try {
-                            Thread.sleep(200); // This is a dirty hack - need to
-                                               // ask what to do about this on
-                                               // the newsgroup at some point
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
 
                         // If deployed correctly then start the tests!
                         startTests();

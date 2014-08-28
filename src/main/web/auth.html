@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+  <head>
+
+{{>meta.html}}
+
+    <title>Authorise app</title>
+  
+{{>csslibs.html}}
+  
+    <!-- Custom styles for this template -->
+    <link href="css/styles.css" rel="stylesheet">
+  
+  </head>
+  <body>
+
+{{>nav.html}}
+
+    <div class="container">
+
+      <div class="starter-template">
+        <h1>Authorise app</h1>
+        <p class="lead">The app <strong>{{name}}</strong> wants to access the following personal information.</p>
+      
+      <form method="post" action="/auth">
+      	<input type="hidden" name="clientId" value="{{_id}}" />
+      	<input type="hidden" name="redirectUri" value="{{redirectUri}}" />
+      	{{#permissions}}
+        <div class="checkbox">
+          <label><input type="checkbox" name="scope" value="{{name}}" />{{description}}</label>
+        </div>
+        {{/permissions}}
+        <button type="submit" class="btn btn-primary">Authorise</button>
+        <a href="{{cancelUri}}" class="btn btn-danger">No thanks!</a>
+      </form>
+      
+      </div>
+
+    </div><!-- /.container -->
+
+{{>jslibs.html}}
+
+  </body>
+</html>

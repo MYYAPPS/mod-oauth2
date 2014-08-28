@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+
+{{>meta.html}}
+  
+    <title>Login</title>
+  
+{{>csslibs.html}}
+  
+    <!-- Custom styles for this template -->
+    <link href="css/styles.css" rel="stylesheet">
+  
+  </head>
+  <body>
+    <div class="container">
+    
+      <form class="form-signin" role="form" method="post" action="/login?next={{next}}">
+        <h1 class="form-signin-heading">Please sign in</h1>
+{{#error}}
+        <div class="alert alert-danger" role="alert">{{error}}</div>
+{{/error}}
+		<div class="form-group{{#error}} has-error{{/error}}">
+          <input type="username" name="username" class="form-control" id="username" placeholder="Username" required autofocus>
+          <input type="password" name="password" class="form-control" id="password" placeholder="Password" required>
+		</div>        
+        <div class="checkbox">
+          <label>
+            <input type="checkbox" value="remember-me"> Remember me
+          </label>
+        </div>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+      </form>
+    </div>
+  </body>
+</html>

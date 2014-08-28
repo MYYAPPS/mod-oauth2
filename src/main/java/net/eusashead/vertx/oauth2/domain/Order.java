@@ -1,4 +1,4 @@
-package com.mycompany.myproject;
+package net.eusashead.vertx.oauth2.domain;
 
 import java.math.BigDecimal;
 import java.util.Date;

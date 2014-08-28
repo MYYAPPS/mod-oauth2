@@ -1,4 +1,4 @@
-package com.mycompany.myproject;
+package net.eusashead.vertx.oauth2.domain;
 
 class Identity {
 
