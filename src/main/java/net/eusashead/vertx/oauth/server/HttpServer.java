@@ -51,12 +51,14 @@ public class HttpServer extends Verticle {
     public static final String OAUTH_WORKER_VERTICLE = "vertx.oauthmanager";
 
     // TODO configure SSL and check that secure cookie works
-    // TODO use lambdas
+    // DONE use lambdas
     // DONE support partial templates
     // TODO csrf defense
     // DONE build util that binds request params to JsonObject
     // TODO build util that binds request params to JavaBean
     // TODO handle form element error messages
+    // TODO switch to RxJava event bus
+    // TODO convert OAuthVerticle into module
 
     @Override
     public void start(final Future<Void> startedResult) {
@@ -85,24 +87,18 @@ public class HttpServer extends Verticle {
         final EventBus eventBus = this.vertx.eventBus();
 
         // Deploy modules
-        final ModuleDeployer deployer = new ModuleDeployer(container);
-        deployer.withModule("io.vertx~mod-mongo-persistor~2.1.1",
-                modMongoConfig)
+        new ModuleDeployer(container)
+                .withModule("io.vertx~mod-mongo-persistor~2.1.1",
+                        modMongoConfig)
                 .withModule("io.vertx~mod-auth-mgr~2.0.0-final", modAuthConfig)
                 .withWorkerVerticle(OAuthWorkerVerticle.class.getName(),
                         modOauthConfig, 1, false)
-                .deploy(new Handler<AsyncResult<Map<String, AsyncResult<String>>>>() {
-
-                    // TODO convert OAuthVerticle into module
-                    @Override
-                    public void handle(
-                            AsyncResult<Map<String, AsyncResult<String>>> event) {
-                        if (event.succeeded()) {
-                            startedResult.setResult(null);
-                        } else {
-                            startedResult.setFailure(event.cause());
-                        }
-
+                .deploy((
+                        final AsyncResult<Map<String, AsyncResult<String>>> event) -> {
+                    if (event.succeeded()) {
+                        startedResult.setResult(null);
+                    } else {
+                        startedResult.setFailure(event.cause());
                     }
 
                 });
@@ -117,11 +113,9 @@ public class HttpServer extends Verticle {
         // TODO extract login handler classes
 
         // Get the login form
-        routeMatcher.get("/login", new Handler<HttpServerRequest>() {
+        routeMatcher.get("/login", (final HttpServerRequest request) -> {
 
-            @Override
-            public void handle(final HttpServerRequest request) {
-                // Get the next URI
+            // Get the next URI
                 String next = getNextUri(request.params(), DEFAULT_URI);
 
                 // Create the model
@@ -131,207 +125,201 @@ public class HttpServer extends Verticle {
                 // Render the view
                 View tmpl = viewFactory.getView("login.html");
                 tmpl.render(request.response(), model);
-            }
-
-        });
+            });
 
         // Handle login submission
-        routeMatcher.post("/login", new Handler<HttpServerRequest>() {
+        routeMatcher
+                .post("/login",
+                        (final HttpServerRequest request) -> {
 
-            @Override
-            public void handle(final HttpServerRequest request) {
+                            // Get the form data
+                            FormBinder
+                                    .populate(
+                                            request,
+                                            (final JsonObject formData) -> {
 
-                // Get the form data
-                FormBinder.populate(request, new Handler<JsonObject>() {
+                                                // Send login request
+                                                eventBus.send(
+                                                        AUTH_WORKER_VERTICLE
+                                                                + ".login",
+                                                        formData,
+                                                        (final Message<JsonObject> message) -> {
+                                                            if ("ok".equals(message
+                                                                    .body()
+                                                                    .getString(
+                                                                            "status"))) {
+                                                                LoginToken token = new LoginToken(
+                                                                        message.body()
+                                                                                .getString(
+                                                                                        "sessionID"));
+                                                                token.encode(request
+                                                                        .response());
+                                                                request.response()
+                                                                        .headers()
+                                                                        .add(HttpHeaders.Names.LOCATION,
+                                                                                request.params()
+                                                                                        .get("next"));
+                                                                request.response()
+                                                                        .setStatusCode(
+                                                                                302)
+                                                                        .end();
+                                                            } else {
 
-                    public void handle(final JsonObject formData) {
+                                                                // Get the next
+                                                                // URI
+                                                                String next = getNextUri(
+                                                                        request.params(),
+                                                                        DEFAULT_URI);
 
-                        // Send login request
-                        eventBus.send(AUTH_WORKER_VERTICLE + ".login",
-                                formData, new Handler<Message<JsonObject>>() {
+                                                                // Create the
+                                                                // model
+                                                                Map<String, String> model = new ConcurrentHashMap<>();
+                                                                model.put(
+                                                                        "next",
+                                                                        next);
+                                                                model.put(
+                                                                        "error",
+                                                                        "Login failed. Please check username and password and try again.");
 
-                                    @Override
-                                    public void handle(
-                                            final Message<JsonObject> message) {
-                                        if ("ok".equals(message.body()
-                                                .getString("status"))) {
-                                            LoginToken token = new LoginToken(
-                                                    message.body().getString(
-                                                            "sessionID"));
-                                            token.encode(request.response());
-                                            request.response()
-                                                    .headers()
-                                                    .add(HttpHeaders.Names.LOCATION,
-                                                            request.params()
-                                                                    .get("next"));
-                                            request.response()
-                                                    .setStatusCode(302).end();
-                                        } else {
+                                                                // Render the
+                                                                // view
+                                                                request.response()
+                                                                        .setStatusCode(
+                                                                                403);
+                                                                viewFactory
+                                                                        .getView(
+                                                                                "login.html")
+                                                                        .render(request
+                                                                                .response(),
+                                                                                model);
+                                                            }
+                                                        });
+                                            });
 
-                                            // Get the next URI
-                                            String next = getNextUri(
-                                                    request.params(),
-                                                    DEFAULT_URI);
-
-                                            // Create the model
-                                            Map<String, String> model = new ConcurrentHashMap<>();
-                                            model.put("next", next);
-                                            model.put("error",
-                                                    "Login failed. Please check username and password and try again.");
-
-                                            // Render the view
-                                            request.response().setStatusCode(
-                                                    403);
-                                            viewFactory.getView("login.html")
-                                                    .render(request.response(),
-                                                            model);
-                                        }
-                                    }
-                                });
-                    }
-                });
-
-            }
-        });
+                        });
 
         // TODO create logout handler class
         // Handle logout
-        routeMatcher.get("/logout", new Handler<HttpServerRequest>() {
+        routeMatcher
+                .get("/logout",
+                        (final HttpServerRequest request) -> {
+                            authenticate(
+                                    request,
+                                    (final AuthenticatedRequest event) -> {
 
-            @Override
-            public void handle(final HttpServerRequest request) {
-                authenticate(request, new Handler<AuthenticatedRequest>() {
+                                        eventBus.send(
+                                                AUTH_WORKER_VERTICLE
+                                                        + ".logout",
+                                                new JsonObject().putString(
+                                                        "sessionID", event
+                                                                .token()
+                                                                .sessionId()),
+                                                (final Message<JsonObject> message) -> {
 
-                    @Override
-                    public void handle(final AuthenticatedRequest event) {
+                                                    container.logger().info(
+                                                            message.body());
 
-                        eventBus.send(AUTH_WORKER_VERTICLE + ".logout",
-                                new JsonObject().putString("sessionID", event
-                                        .token().sessionId()),
-                                new Handler<Message<JsonObject>>() {
+                                                    // Expire the token
+                                                    event.token().expire(
+                                                            request.response());
 
-                                    @Override
-                                    public void handle(
-                                            final Message<JsonObject> message) {
+                                                    // Send logout UI
+                                                    viewFactory
+                                                            .getView(
+                                                                    "logout.html")
+                                                            .render(request
+                                                                    .response(),
+                                                                    new ConcurrentHashMap<String, String>());
+                                                });
 
-                                        container.logger().info(message.body());
+                                    });
 
-                                        // Expire the token
-                                        event.token()
-                                                .expire(request.response());
-
-                                        // Send logout UI
-                                        viewFactory
-                                                .getView("logout.html")
-                                                .render(request.response(),
-                                                        new ConcurrentHashMap<String, String>());
-                                    }
-                                });
-
-                    }
-                });
-
-            }
-
-        });
+                        });
 
         // Create authentication resource
         // TODO extract AuthHandler.java
-        routeMatcher.get("/auth", new Handler<HttpServerRequest>() {
+        routeMatcher.get(
+                "/auth",
+                (final HttpServerRequest request) -> {
 
-            @Override
-            public void handle(final HttpServerRequest request) {
+                    // Is the user logged in
+                    authenticate(request,
+                            (final AuthenticatedRequest event) -> {
 
-                // Is the user logged in
-                authenticate(request, new Handler<AuthenticatedRequest>() {
-
-                    @Override
-                    public void handle(AuthenticatedRequest event) {
-
-                        // Get the form data
-                        FormBinder.populate(request, new Handler<JsonObject>() {
-
-                            @Override
-                            public void handle(JsonObject formData) {
-                                eventBus.send(OAUTH_WORKER_VERTICLE + ".auth",
+                                // Get the form data
+                            FormBinder.populate(request, (
+                                    final JsonObject formData) -> {
+                                eventBus.send(OAUTH_WORKER_VERTICLE
+                                        + ".codeRequest",
                                         formData,
-                                        new Handler<Message<JsonObject>>() {
+                                        (final Message<JsonObject> reply) -> {
 
-                                            @Override
-                                            public void handle(
-                                                    Message<JsonObject> reply) {
+                                            if ("ok".equals(reply.body()
+                                                    .getField("status"))) {
+                                                // Return authorization form
+                                        View tmpl = viewFactory
+                                                .getView("auth.html");
+                                        tmpl.render(request.response(),
+                                                reply.body());
+                                    } else {
+                                        request.response().setStatusCode(400);
+                                        View tmpl = viewFactory
+                                                .getView("error.html");
+                                        tmpl.render(request.response(),
+                                                reply.body());
+                                    }
 
-                                                if ("ok".equals(reply.body()
-                                                        .getField("status"))) {
-                                                    // Return authorization form
-                                                    View tmpl = viewFactory
-                                                            .getView("auth.html");
-                                                    tmpl.render(
-                                                            request.response(),
-                                                            reply.body());
-                                                } else {
-                                                    request.response()
-                                                            .setStatusCode(400);
-                                                    View tmpl = viewFactory
-                                                            .getView("error.html");
-                                                    tmpl.render(
-                                                            request.response(),
-                                                            reply.body());
-                                                }
-
-                                            }
-                                        });
-
-                            }
+                                });
+                            });
                         });
-
-                    }
-
                 });
-
-            }
-
-        });
 
         // TODO handle /auth post and create code
-        routeMatcher.post("/auth", new Handler<HttpServerRequest>() {
+        routeMatcher
+                .post("/auth",
+                        (final HttpServerRequest request) -> {
 
-            @Override
-            public void handle(final HttpServerRequest request) {
+                            // Get the form data
+                            FormBinder
+                                    .populate(
+                                            request,
+                                            (final JsonObject formData) -> {
 
-                // Get the form data
-                FormBinder.populate(request, new Handler<JsonObject>() {
+                                                // Is the user logged in
+                                                authenticate(
+                                                        request,
+                                                        (final AuthenticatedRequest event) -> {
 
-                    @Override
-                    public void handle(final JsonObject formData) {
+                                                            // Add user to
+                                                            // request
+                                                            formData.putString(
+                                                                    "username",
+                                                                    event.principal());
 
-                        // Is the user logged in
-                        authenticate(request,
-                                new Handler<AuthenticatedRequest>() {
+                                                            // Send message
+                                                            eventBus.send(
+                                                                    OAUTH_WORKER_VERTICLE
+                                                                            + ".codeResponse",
+                                                                    formData,
+                                                                    (final Message<JsonObject> reply) -> {
+                                                                        request.response()
+                                                                                .end(reply
+                                                                                        .body()
+                                                                                        .encode());
+                                                                    });
 
-                                    @Override
-                                    public void handle(
-                                            final AuthenticatedRequest event) {
-
-                                        request.response().end(
-                                                formData.encode());
-                                    }
-                                });
-                    }
-                });
-            }
-        });
+                                                        });
+                                            });
+                        });
 
         // TODO handle POST /token to create a new auth token
 
         // Create token resource
         // TODO extract TokenHandler.java
-        routeMatcher.get("/token/:tokenId", new Handler<HttpServerRequest>() {
+        routeMatcher.get("/token/:tokenId",
+                (final HttpServerRequest request) -> {
 
-            @Override
-            public void handle(final HttpServerRequest request) {
-
-                // Is the user logged in
+                    // Is the user logged in
                 authenticate(request, new Handler<AuthenticatedRequest>() {
 
                     @Override
@@ -341,8 +329,7 @@ public class HttpServer extends Verticle {
                     }
 
                 });
-            }
-        });
+            });
 
         // Add the static handler
         routeMatcher.noMatch(staticHandler());
@@ -432,14 +419,10 @@ public class HttpServer extends Verticle {
                 }
                 // Handle JSON body
                 else if ("application/json".equals(contentType)) {
-                    request.bodyHandler(new Handler<Buffer>() {
-
-                        @Override
-                        public void handle(Buffer event) {
-                            JsonObject body = new JsonObject(event.toString());
-                            requestData.putObject("body", body);
-                            handler.handle(requestData);
-                        }
+                    request.bodyHandler((final Buffer event) -> {
+                        JsonObject body = new JsonObject(event.toString());
+                        requestData.putObject("body", body);
+                        handler.handle(requestData);
                     });
                 } else {
                     handler.handle(requestData);

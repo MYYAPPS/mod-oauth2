@@ -373,8 +373,8 @@ public class HttpServerIntegrationTest extends TestVerticle {
                         });
 
                 // Form data
-                String data = new StringBuilder("clientId=").append("1234")
-                        .append("&redirectUri=")
+                String data = new StringBuilder("client_id=").append(CLIENT_ID)
+                        .append("&redirect_uri=")
                         .append(UrlEncoder.encode(REDIRECT_URI).get())
                         .append("&scope=").append("friends").append("&scope=")
                         .append("photos").toString();
@@ -518,6 +518,7 @@ public class HttpServerIntegrationTest extends TestVerticle {
                                 "applications",
                                 new JsonObject()
                                         .putString("_id", CLIENT_ID)
+                                        .putString("secret", "secret")
                                         .putString("name", "Walrus Corporation")
                                         .putString("redirectUri", REDIRECT_URI)
                                         .putString("cancelUri", CANCEL_URI));

@@ -7,14 +7,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 import org.vertx.java.busmods.BusModBase;
-import org.vertx.java.core.Handler;
-import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 
 import rx.Observable;
-import rx.functions.Action1;
-import rx.functions.Func2;
 
 public class OAuthWorkerVerticle extends BusModBase {
 
@@ -31,6 +27,7 @@ public class OAuthWorkerVerticle extends BusModBase {
     private String mongoAddr;
     private String appCollection;
     private String permCollection;
+    private String userCollection;
 
     @Override
     public void start() {
@@ -48,83 +45,122 @@ public class OAuthWorkerVerticle extends BusModBase {
                 "applications");
         this.permCollection = getOptionalStringConfig("perm_collection",
                 "permissions");
+        this.userCollection = getOptionalStringConfig("user_collection",
+                "users");
         String address = getOptionalStringConfig("address", DEFAULT_ADDR);
 
-        // Register auth handler
-        eb.registerHandler(address + ".auth",
-                new Handler<Message<JsonObject>>() {
-
-                    @Override
-                    public void handle(Message<JsonObject> event) {
-                        doAuth(event, rxEventBus);
-                    }
-
+        // Register codeRequest handler
+        rxEventBus.<JsonObject> registerHandler(address + ".codeRequest")
+                .subscribe((RxMessage<JsonObject> event) -> {
+                    doCodeRequest(event, rxEventBus);
                 });
 
-        // Register test handler with lambda expression
-        eb.registerHandler(address + ".test", (event) -> {
-            container.logger().info("test");
-            event.reply();
-        });
+        // Register codeResponse handler
+        rxEventBus.<JsonObject> registerHandler(address + ".codeResponse")
+                .subscribe(
+                        (RxMessage<JsonObject> event) -> {
+                            container.logger().info(
+                                    "Code response message: " + event.body());
+
+                            // validate input
+
+                            doCodeResponse(event, rxEventBus);
+                        });
 
     }
 
-    private void doAuth(final Message<JsonObject> event,
+    private void doCodeResponse(final RxMessage<JsonObject> event,
             final RxEventBus eventBus) {
 
         // Validate input
-        final Validator validator = new Validator(event.body())
-                .requireField(CLIENT_ID_PARAM, "Client identifier missing")
-                .requireField(RESPONSE_TYPE_PARAM, "Response type missing")
-                .requireField(REDIRECT_URI_PARAM, "Redirect URI missing")
-                .requireField(SCOPE_PARAM, "Scope missing");
+        final Validator validator = new Validator(event.body());
+        final String clientId = validator.requireString(CLIENT_ID_PARAM,
+                "Client identifier missing");
+        final String username = validator.requireString("username",
+                "User identifier missing");
+        final String redirectUri = validator.requireString(REDIRECT_URI_PARAM,
+                "Redirect URI missing");
+        final JsonArray scope = validator.requireArray(SCOPE_PARAM,
+                "Scope missing");
+        // If invalid, send error response
+        if (validator.hasErrors()) {
+            replyError(event, validator.errors());
+        } else {
+            // load user and application
+            Observable.zip(applicationObservable(clientId, eventBus),
+                    userObservable(username, eventBus),
+                    (RxMessage<JsonObject> t1, RxMessage<JsonObject> t2) -> {
+                        container.logger().info("application: " + t1.body());
+                        container.logger().info("users: " + t2.body());
+                        return Optional.<JsonObject> empty();
+                    }).subscribe((Optional<JsonObject> t1) -> {
 
+                // Create authorization code with 10 minute expiration
+                    event.reply(event.body());
+                });
+        }
+
+    }
+
+    // TODO refactor to return JsonObject
+    // TODO validation errors are thrown as exceptions
+    private void doCodeRequest(final RxMessage<JsonObject> event,
+            final RxEventBus eventBus) {
+
+        // Validate input
+        final Validator validator = new Validator(event.body());
+        final String clientId = validator.requireString(CLIENT_ID_PARAM,
+                "Client identifier missing");
+        final String responseType = validator.requireString(
+                RESPONSE_TYPE_PARAM, "Response type missing");
+        final String redirectUri = validator.requireString(REDIRECT_URI_PARAM,
+                "Redirect URI missing");
+        final String scope = validator.requireString(SCOPE_PARAM,
+                "Scope missing");
+
+        // If invalid, send error response
         if (validator.hasErrors()) {
             replyError(event, validator.errors());
         } else {
 
             // Load application and permissions
             Observable
-                    .zip(applicationObservable(
-                            event.body().getString("client_id"), eventBus),
-                            permissionsObservable(
-                                    event.body().getString("scope"), eventBus),
-                            new Func2<RxMessage<JsonObject>, RxMessage<JsonObject>, Optional<JsonObject>>() {
+                    .zip(applicationObservable(clientId, eventBus),
+                            permissionsObservable(scope, eventBus),
+                            (RxMessage<JsonObject> t1, RxMessage<JsonObject> t2) -> {
 
-                                @Override
-                                public Optional<JsonObject> call(
-                                        RxMessage<JsonObject> t1,
-                                        RxMessage<JsonObject> t2) {
-
-                                    final String status = t1.body().getString(
-                                            "status");
-                                    final JsonObject application = t1.body()
-                                            .getObject("result");
-                                    final JsonArray permissions = t2.body()
-                                            .getArray("results");
-
-                                    if ("ok".equals(status)
-                                            && application != null) {
+                                final FindOneResponse appResponse = new FindOneResponse(
+                                        t1.body());
+                                final FindResponse permResponse = new FindResponse(
+                                        t2.body());
+                                if (Status.ok.equals(appResponse.status())
+                                        && appResponse.result().isPresent()) {
+                                    final JsonObject application = appResponse
+                                            .result().get();
+                                    if (permResponse.results().isPresent()) {
                                         application.putArray("permissions",
-                                                permissions);
-                                        return Optional.of(application);
-                                    } else {
-                                        return Optional.empty();
+                                                permResponse.results().get());
                                     }
+                                    return Optional
+                                            .<JsonObject> of(application);
+                                } else {
+                                    return Optional.<JsonObject> empty();
                                 }
-                            }).subscribe(new Action1<Optional<JsonObject>>() {
+                            }).subscribe((Optional<JsonObject> t1) -> {
 
-                        @Override
-                        public void call(Optional<JsonObject> t1) {
-
-                            // Did application load?
+                        // Did application load?
                             if (t1.isPresent()) {
+
+                                // Application was loaded
                                 JsonObject result = t1.get();
+
                                 // Check redirect URI matches
-                                if (event
-                                        .body()
-                                        .getString(REDIRECT_URI_PARAM)
-                                        .equals(result.getString("redirectUri"))) {
+                                if (redirectUri.equals(result
+                                        .getString("redirectUri"))) {
+
+                                    // Add responseType field
+                                    result.putString("responseType",
+                                            responseType);
 
                                     // Set status OK
                                     result.putString("status", "ok");
@@ -144,12 +180,11 @@ public class OAuthWorkerVerticle extends BusModBase {
                                         "Failed to load application.");
                                 replyError(event, validator.errors());
                             }
-                        }
-                    });
+                        });
         }
     }
 
-    private void replyError(final Message<JsonObject> event,
+    private void replyError(final RxMessage<JsonObject> event,
             final JsonArray messages) {
         event.reply(new JsonObject().putString("status", "error").putArray(
                 "messages", messages));
@@ -171,6 +206,19 @@ public class OAuthWorkerVerticle extends BusModBase {
                         .putString("collection", this.appCollection)
                         .putObject("matcher",
                                 new JsonObject().putString("_id", clientId)));
+    }
+
+    private Observable<RxMessage<JsonObject>> userObservable(
+            final String username, final RxEventBus eventBus) {
+        return eventBus.send(
+                this.mongoAddr,
+                new JsonObject()
+                        .putString("action", "findone")
+                        .putString("collection", this.userCollection)
+                        .putObject(
+                                "matcher",
+                                new JsonObject()
+                                        .putString("username", username)));
     }
 
     /**
@@ -227,6 +275,25 @@ class Validator {
             errors.add(errorMessage(fieldName, message));
         }
         return this;
+
+    }
+
+    public String requireString(String fieldName, String message) {
+        if (!target.containsField(fieldName)) {
+            errors.add(errorMessage(fieldName, message));
+            return null;
+        } else {
+            return target.getString(fieldName);
+        }
+    }
+
+    public JsonArray requireArray(String fieldName, String message) {
+        if (!target.containsField(fieldName)) {
+            errors.add(errorMessage(fieldName, message));
+            return null;
+        } else {
+            return target.getArray(fieldName);
+        }
 
     }
 
